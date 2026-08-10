@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -16,7 +18,10 @@ const (
 	ProductionBaseURL = "https://prd.mhrs.gov.tr/api/"
 )
 
-var ErrSessionExpired = errors.New("MHRS oturumu sona ermis")
+var (
+	ErrSessionExpired = errors.New("MHRS oturumu sona ermis")
+	htmlTagPattern    = regexp.MustCompile(`<[^>]*>`)
+)
 
 type Client struct {
 	baseURL    string
@@ -124,7 +129,7 @@ func (c *Client) SearchAppointments(ctx context.Context, criteria SearchCriteria
 	if err := c.post(ctx, "kurum-rss/randevu/slot-sorgulama/arama", payload, &data); err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			if apiErr.HasCode("RND4010") || apiErr.HasCode("RND4030") {
+			if apiErr.HasCode("RND4010") || apiErr.HasCode("RND4030") || apiErr.HasCode("RND4069") {
 				return nil, nil
 			}
 			if apiErr.HasCode("LGN1004") || apiErr.HasCode("LGN2001") || apiErr.Status == http.StatusUnauthorized {
@@ -292,7 +297,7 @@ type APIError struct {
 func (e *APIError) Error() string {
 	parts := make([]string, 0, len(e.Messages))
 	for _, message := range e.Messages {
-		text := strings.TrimSpace(message.Message)
+		text := cleanAPIMessage(message.Message)
 		if message.Code != "" && text != "" {
 			parts = append(parts, message.Code+": "+text)
 		} else if message.Code != "" {
@@ -305,6 +310,12 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("MHRS istegi reddetti (HTTP %d)", e.Status)
 	}
 	return fmt.Sprintf("MHRS istegi reddetti (HTTP %d): %s", e.Status, strings.Join(parts, "; "))
+}
+
+func cleanAPIMessage(message string) string {
+	message = html.UnescapeString(message)
+	message = htmlTagPattern.ReplaceAllString(message, " ")
+	return strings.Join(strings.Fields(message), " ")
 }
 
 func (e *APIError) HasCode(code string) bool {

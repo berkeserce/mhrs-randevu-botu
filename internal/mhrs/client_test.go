@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -124,16 +126,39 @@ func TestListDoctorsUsesSelectedInstitutionAndClinic(t *testing.T) {
 }
 
 func TestSearchAppointmentsTreatsNoSlotAsEmpty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"success":false,"errors":[{"kodu":"RND4010","mesaj":"Randevu yok"}]}`))
-	}))
-	defer server.Close()
-	client := newClient(server.URL, server.Client())
-	items, err := client.SearchAppointments(context.Background(), SearchCriteria{})
-	if err != nil || len(items) != 0 {
-		t.Fatalf("items = %#v, error = %v", items, err)
+	for _, test := range []struct {
+		name   string
+		status int
+		code   string
+	}{
+		{name: "standard no slot", status: http.StatusBadRequest, code: "RND4010"},
+		{name: "doctor no slot", status: http.StatusPreconditionRequired, code: "RND4069"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(test.status)
+				_, _ = fmt.Fprintf(w, `{"success":false,"errors":[{"kodu":%q,"mesaj":"Randevu yok"}]}`, test.code)
+			}))
+			defer server.Close()
+			client := newClient(server.URL, server.Client())
+			items, err := client.SearchAppointments(context.Background(), SearchCriteria{})
+			if err != nil || len(items) != 0 {
+				t.Fatalf("items = %#v, error = %v", items, err)
+			}
+		})
+	}
+}
+
+func TestAPIErrorRemovesHTMLFromMessage(t *testing.T) {
+	err := (&APIError{Status: http.StatusPreconditionRequired, Messages: []apiMessage{{
+		Code: "RND4069", Message: `Randevu <font color="#D22929"><b>bulunamamistir.</b></font><br> Tekrar deneyin.`,
+	}}}).Error()
+	if strings.Contains(err, "<") || strings.Contains(err, ">") {
+		t.Fatalf("HTML leaked into error: %q", err)
+	}
+	if !strings.Contains(err, "Randevu bulunamamistir. Tekrar deneyin.") {
+		t.Fatalf("clean message missing: %q", err)
 	}
 }
 
