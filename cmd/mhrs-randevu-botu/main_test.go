@@ -22,6 +22,26 @@ func TestPromptInteractiveConfig(t *testing.T) {
 	}
 }
 
+func TestTurkishDateAndDurationFormatting(t *testing.T) {
+	value := time.Date(2026, time.August, 10, 17, 13, 59, 0, time.UTC)
+	if got := formatTurkishDateTime(value, true); got != "10 Ağustos 2026 20:13:59 TSİ" {
+		t.Fatalf("date = %q", got)
+	}
+	if got := formatDurationTurkish(5 * time.Minute); got != "5 dakika" {
+		t.Fatalf("duration = %q", got)
+	}
+	if got := formatDurationTurkish(90 * time.Minute); got != "1 saat 30 dakika" {
+		t.Fatalf("duration = %q", got)
+	}
+}
+
+func TestStyledOutputCanBeDisabled(t *testing.T) {
+	colorOutput = false
+	if got := styled(ansiGreen, "mesaj"); got != "mesaj" {
+		t.Fatalf("styled = %q", got)
+	}
+}
+
 func TestPromptInteractiveConfigDefaults(t *testing.T) {
 	input := bufio.NewReader(strings.NewReader("34\n\n\n\n"))
 	var output bytes.Buffer

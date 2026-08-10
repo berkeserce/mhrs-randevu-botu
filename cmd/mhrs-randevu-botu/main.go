@@ -19,13 +19,30 @@ import (
 	"golang.org/x/term"
 )
 
-const maxAppointmentWindowDays = 16
+const (
+	maxAppointmentWindowDays = 16
+	ansiReset                = "\x1b[0m"
+	ansiBoldCyan             = "\x1b[1;36m"
+	ansiGreen                = "\x1b[32m"
+	ansiBoldGreen            = "\x1b[1;32m"
+	ansiYellow               = "\x1b[33m"
+	ansiRed                  = "\x1b[31m"
+	ansiMagenta              = "\x1b[35m"
+	ansiDim                  = "\x1b[2m"
+)
+
+var (
+	colorOutput    bool
+	turkeyLocation = time.FixedZone("TSİ", 3*60*60)
+	turkishMonths  = [...]string{"", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"}
+)
 
 func main() {
 	chromiumPath := flag.String("chromium-path", "", "chrome.exe veya chromium calistirilabilir dosyasinin yolu")
 	browserTimeout := flag.Duration("browser-timeout", 10*time.Minute, "manuel tarayici girisi zaman asimi")
 	refreshSession := flag.Bool("refresh-session", false, "kayitli JWT yerine Chromium ile yeni oturum al")
 	clearSession := flag.Bool("clear-session", false, "kayitli sifreli MHRS oturumunu sil ve cik")
+	noColor := flag.Bool("no-color", false, "terminal renklerini kapat")
 	once := flag.Bool("once", false, "randevuyu yalnizca bir kez kontrol et")
 	interval := flag.Duration("interval", 5*time.Minute, "randevu kontrol araligi (en az 1 dakika)")
 	days := flag.Int("gun", 3, "randevu tarihi ve takip suresi (1-16 gun)")
@@ -37,15 +54,16 @@ func main() {
 	examinationID := flag.Int64("muayene-yeri", -1, "MHRS muayene yeri ID (-1: tumu)")
 	gender := flag.String("cinsiyet", "F", "MHRS cinsiyet filtresi: F (varsayilan/farketmez) veya M")
 	flag.Parse()
+	colorOutput = !*noColor && enableColorOutput()
 
 	if *clearSession {
 		if err := sessioncache.Remove(); err != nil {
 			exitWithError(err)
 		}
-		fmt.Println("Kayitli MHRS oturumu silindi.")
+		fmt.Println(styled(ansiGreen, "Kayitli MHRS oturumu silindi."))
 		return
 	}
-	if flag.NFlag() == 0 {
+	if noRunConfigurationFlags() {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
 			exitWithError(errors.New("parametresiz kullanim icin etkilesimli terminal gerekli; secenekler icin -help kullanin"))
 		}
@@ -69,6 +87,52 @@ func main() {
 	}
 }
 
+func noRunConfigurationFlags() bool {
+	hasRunFlag := false
+	flag.Visit(func(item *flag.Flag) {
+		if item.Name != "no-color" {
+			hasRunFlag = true
+		}
+	})
+	return !hasRunFlag
+}
+
+func styled(code, text string) string {
+	if !colorOutput {
+		return text
+	}
+	return code + text + ansiReset
+}
+
+func formatTurkishDateTime(value time.Time, withSeconds bool) string {
+	value = value.In(turkeyLocation)
+	timeText := value.Format("15:04")
+	if withSeconds {
+		timeText = value.Format("15:04:05")
+	}
+	return fmt.Sprintf("%d %s %d %s TSİ", value.Day(), turkishMonths[value.Month()], value.Year(), timeText)
+}
+
+func formatDurationTurkish(value time.Duration) string {
+	totalMinutes := int(value.Round(time.Minute) / time.Minute)
+	if totalMinutes < 60 {
+		return fmt.Sprintf("%d dakika", totalMinutes)
+	}
+	hours, minutes := totalMinutes/60, totalMinutes%60
+	if minutes == 0 {
+		return fmt.Sprintf("%d saat", hours)
+	}
+	return fmt.Sprintf("%d saat %d dakika", hours, minutes)
+}
+
+func formatAppointmentDate(value string) string {
+	parsed, err := parseAppointmentTime(value, turkeyLocation)
+	if err != nil {
+		return displayValue(value)
+	}
+	return formatTurkishDateTime(parsed, false)
+}
+
 type interactiveConfig struct {
 	cityID   int64
 	days     int
@@ -77,10 +141,10 @@ type interactiveConfig struct {
 }
 
 func promptInteractiveConfig(reader *bufio.Reader, writer io.Writer) (interactiveConfig, error) {
-	fmt.Fprintln(writer, "============================================================")
-	fmt.Fprintln(writer, "MHRS Randevu Botu")
+	fmt.Fprintln(writer, styled(ansiDim, "============================================================"))
+	fmt.Fprintln(writer, styled(ansiBoldCyan, "MHRS Randevu Botu"))
 	fmt.Fprintln(writer, "Yalnizca uygun randevuyu sorgular ve bildirir; randevu almaz.")
-	fmt.Fprintln(writer, "============================================================")
+	fmt.Fprintln(writer, styled(ansiDim, "============================================================"))
 
 	city, err := promptNumber(reader, writer, "Il plaka kodu (1-81): ", 1, 81, 0)
 	if err != nil {
@@ -105,9 +169,10 @@ func promptInteractiveConfig(reader *bufio.Reader, writer io.Writer) (interactiv
 	}
 	modeText := "tek sorgu"
 	if !config.once {
-		modeText = fmt.Sprintf("surekli takip, %s aralikla", config.interval)
+		modeText = fmt.Sprintf("surekli takip, %s aralikla", formatDurationTurkish(config.interval))
 	}
-	fmt.Fprintf(writer, "\nSecimler: il=%d, pencere=%d gun, mod=%s\n\n", config.cityID, config.days, modeText)
+	summary := fmt.Sprintf("Secimler: il=%d, pencere=%d gun, mod=%s", config.cityID, config.days, modeText)
+	fmt.Fprintf(writer, "\n%s\n\n", styled(ansiGreen, summary))
 	return config, nil
 }
 
@@ -124,12 +189,13 @@ func promptNumber(reader *bufio.Reader, writer io.Writer, prompt string, minValu
 		if err == nil && number >= minValue && number <= maxValue {
 			return number, nil
 		}
-		fmt.Fprintf(writer, "Lutfen %d ile %d arasinda bir sayi girin.\n", minValue, maxValue)
+		message := fmt.Sprintf("Lutfen %d ile %d arasinda bir sayi girin.", minValue, maxValue)
+		fmt.Fprintln(writer, styled(ansiYellow, message))
 	}
 }
 
 func exitWithError(err error) {
-	fmt.Fprintln(os.Stderr, "Hata:", err)
+	fmt.Fprintln(os.Stderr, styled(ansiRed, "Hata: "+err.Error()))
 	os.Exit(1)
 }
 
@@ -141,14 +207,15 @@ func acquireBrowserToken(parent context.Context, preferredExecutable string, tim
 		if token, err := sessioncache.Load(); err == nil {
 			info, parseErr := browserauth.ParseJWT(token, time.Now().Add(2*time.Minute))
 			if parseErr == nil {
-				fmt.Printf("Kayitli sifreli MHRS oturumu kullaniliyor. Oturum sonu: %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
+				message := fmt.Sprintf("Kayitli sifreli MHRS oturumu kullaniliyor. Oturum sonu: %s", formatTurkishDateTime(info.ExpiresAt, false))
+				fmt.Println(styled(ansiGreen, message))
 				return token, info, nil
 			}
 			_ = sessioncache.Remove()
-			fmt.Println("Kayitli MHRS oturumunun suresi dolmus; yeni giris gerekiyor.")
+			fmt.Println(styled(ansiYellow, "Kayitli MHRS oturumunun suresi dolmus; yeni giris gerekiyor."))
 		} else if !errors.Is(err, sessioncache.ErrNotFound) {
 			_ = sessioncache.Remove()
-			fmt.Printf("Kayitli MHRS oturumu kullanilamadi (%v); yeni giris gerekiyor.\n", err)
+			fmt.Println(styled(ansiYellow, fmt.Sprintf("Kayitli MHRS oturumu kullanilamadi (%v); yeni giris gerekiyor.", err)))
 		}
 	}
 
@@ -159,7 +226,7 @@ func acquireBrowserToken(parent context.Context, preferredExecutable string, tim
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	fmt.Println("Chromium aciliyor. e-Devlet veya e-Nabiz girisini acilan pencerede kendiniz tamamlayin.")
+	fmt.Println(styled(ansiBoldCyan, "Chromium aciliyor. e-Devlet veya e-Nabiz girisini acilan pencerede kendiniz tamamlayin."))
 	fmt.Println("Uygulama giris alanlarini okumaz; MHRS'ye donuldugunde yalnizca MHRS JWT'sini alir.")
 	token, err := browserauth.Login(ctx, executablePath)
 	if err != nil {
@@ -170,9 +237,9 @@ func acquireBrowserToken(parent context.Context, preferredExecutable string, tim
 		return "", browserauth.JWTInfo{}, err
 	}
 	if err := sessioncache.Save(token); err != nil {
-		fmt.Printf("Uyari: JWT sifreli onbellege kaydedilemedi: %v\n", err)
+		fmt.Println(styled(ansiYellow, fmt.Sprintf("Uyari: JWT sifreli onbellege kaydedilemedi: %v", err)))
 	} else {
-		fmt.Println("MHRS oturumu Windows hesabina bagli sifreli onbellege kaydedildi.")
+		fmt.Println(styled(ansiGreen, "MHRS oturumu Windows hesabina bagli sifreli onbellege kaydedildi."))
 	}
 	return token, info, nil
 }
@@ -188,7 +255,7 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 	if err != nil {
 		return err
 	}
-	fmt.Printf("MHRS girisi basarili. Oturum sonu: %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
+	fmt.Println(styled(ansiGreen, fmt.Sprintf("MHRS girisi basarili. Oturum sonu: %s", formatTurkishDateTime(info.ExpiresAt, false))))
 	client := mhrs.NewAuthenticatedClient(token)
 	reader := bufio.NewReader(os.Stdin)
 	for attempt := 0; ; attempt++ {
@@ -200,20 +267,21 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 			discardExpiredSession(err)
 			return err
 		}
-		fmt.Println("Kayitli MHRS oturumu sunucu tarafinda sona ermis; yeniden giris gerekiyor.")
+		fmt.Println(styled(ansiYellow, "Kayitli MHRS oturumu sunucu tarafinda sona ermis; yeniden giris gerekiyor."))
 		_ = sessioncache.Remove()
 		token, info, err = acquireBrowserToken(ctx, executablePath, browserTimeout, true)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("MHRS girisi yenilendi. Oturum sonu: %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("MHRS girisi yenilendi. Oturum sonu: %s", formatTurkishDateTime(info.ExpiresAt, false))))
 		client = mhrs.NewAuthenticatedClient(token)
 	}
 
 	watchStartedAt := time.Now()
 	watchDeadline := watchStartedAt.Add(time.Duration(days) * 24 * time.Hour)
-	fmt.Printf("Randevu penceresi: %s - %s (secilen sure: %d gun)\n",
-		watchStartedAt.Format("02.01.2006 15:04"), watchDeadline.Format("02.01.2006 15:04"), days)
+	windowMessage := fmt.Sprintf("Randevu penceresi: %s → %s (secilen sure: %d gun)",
+		formatTurkishDateTime(watchStartedAt, false), formatTurkishDateTime(watchDeadline, false), days)
+	fmt.Println(styled(ansiBoldCyan, windowMessage))
 
 	for {
 		checkedAt := time.Now()
@@ -225,12 +293,12 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 		if err != nil {
 			if errors.Is(err, mhrs.ErrSessionExpired) {
 				_ = sessioncache.Remove()
-				fmt.Println("MHRS oturumu sona erdi; takip suresi devam ettigi icin yeniden giris gerekiyor.")
+				fmt.Println(styled(ansiYellow, "MHRS oturumu sona erdi; takip suresi devam ettigi icin yeniden giris gerekiyor."))
 				token, info, err = acquireBrowserToken(ctx, executablePath, browserTimeout, true)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("MHRS girisi yenilendi. Oturum sonu: %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
+				fmt.Println(styled(ansiGreen, fmt.Sprintf("MHRS girisi yenilendi. Oturum sonu: %s", formatTurkishDateTime(info.ExpiresAt, false))))
 				client = mhrs.NewAuthenticatedClient(token)
 				continue
 			}
@@ -242,7 +310,8 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 			printAvailability(eligible, checkedAt)
 			return nil
 		}
-		fmt.Printf("[%s] Onumuzdeki %d gun icinde uygun randevu bulunamadi.\n", checkedAt.Format("02.01.2006 15:04:05"), days)
+		noSlotMessage := fmt.Sprintf("[%s] Onumuzdeki %d gun icinde uygun randevu bulunamadi.", formatTurkishDateTime(checkedAt, true), days)
+		fmt.Println(styled(ansiYellow, noSlotMessage))
 		if once {
 			return nil
 		}
@@ -251,7 +320,8 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 			wait = remaining
 		}
 		next := time.Now().Add(wait)
-		fmt.Printf("Sonraki kontrol: %s (cikmak icin Ctrl+C)\n", next.Format("02.01.2006 15:04:05"))
+		nextMessage := fmt.Sprintf("Sonraki kontrol: %s (cikmak icin Ctrl+C)", formatTurkishDateTime(next, true))
+		fmt.Println(styled(ansiBoldCyan, nextMessage))
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -265,7 +335,7 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 func filterAvailabilityByWindow(items []mhrs.Availability, now, deadline time.Time) []mhrs.Availability {
 	result := make([]mhrs.Availability, 0, len(items))
 	for _, item := range items {
-		appointment, err := parseAppointmentTime(item.StartTime, now.Location())
+		appointment, err := parseAppointmentTime(item.StartTime, turkeyLocation)
 		if err != nil || appointment.Before(now) || appointment.After(deadline) {
 			continue
 		}
@@ -286,10 +356,10 @@ func parseAppointmentTime(value string, location *time.Location) (time.Time, err
 }
 
 func printFinalNoAppointment(days int, startedAt, deadline time.Time) {
-	fmt.Println("============================================================")
-	fmt.Printf("TAKIP SURESI DOLDU: %s - %s\n", startedAt.Format("02.01.2006 15:04"), deadline.Format("02.01.2006 15:04"))
-	fmt.Printf("Onumuzdeki %d gun icinde uygun randevu bulunamadi.\n", days)
-	fmt.Println("============================================================")
+	fmt.Println(styled(ansiDim, "============================================================"))
+	fmt.Println(styled(ansiYellow, fmt.Sprintf("TAKIP SURESI DOLDU: %s → %s", formatTurkishDateTime(startedAt, false), formatTurkishDateTime(deadline, false))))
+	fmt.Println(styled(ansiYellow, fmt.Sprintf("Onumuzdeki %d gun icinde uygun randevu bulunamadi.", days)))
+	fmt.Println(styled(ansiDim, "============================================================"))
 }
 
 func discardExpiredSession(err error) {
@@ -325,7 +395,7 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 	if criteria.ClinicID > 0 {
 		for _, clinic := range clinics {
 			if clinic.ID == criteria.ClinicID {
-				fmt.Printf("Poliklinik dogrulandi: %s (ID: %d)\n", clinic.Name, clinic.ID)
+				fmt.Println(styled(ansiGreen, fmt.Sprintf("Poliklinik dogrulandi: %s (ID: %d)", clinic.Name, clinic.ID)))
 				return criteria, nil
 			}
 		}
@@ -341,20 +411,20 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 			return criteria, err
 		}
 		if len([]rune(strings.TrimSpace(query))) < 2 {
-			fmt.Println("En az iki karakter yazin.")
+			fmt.Println(styled(ansiYellow, "En az iki karakter yazin."))
 			continue
 		}
 		matches := filterClinics(clinics, query)
 		if len(matches) == 0 {
-			fmt.Println("Eslesen poliklinik bulunamadi; baska bir ifade deneyin.")
+			fmt.Println(styled(ansiYellow, "Eslesen poliklinik bulunamadi; baska bir ifade deneyin."))
 			continue
 		}
 		if len(matches) > 25 {
-			fmt.Printf("%d sonuc var; aramayi biraz daha daraltin.\n", len(matches))
+			fmt.Println(styled(ansiYellow, fmt.Sprintf("%d sonuc var; aramayi biraz daha daraltin.", len(matches))))
 			continue
 		}
 		for index, clinic := range matches {
-			fmt.Printf("%2d. %s (ID: %d)\n", index+1, clinic.Name, clinic.ID)
+			fmt.Printf("%s %s (ID: %d)\n", styled(ansiMagenta, fmt.Sprintf("%2d.", index+1)), clinic.Name, clinic.ID)
 		}
 		choice, err := readLine(reader, "Secim numarasi: ")
 		if err != nil {
@@ -362,11 +432,11 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 		}
 		var selected int
 		if _, err := fmt.Sscan(choice, &selected); err != nil || selected < 1 || selected > len(matches) {
-			fmt.Println("Gecerli bir secim numarasi girin.")
+			fmt.Println(styled(ansiYellow, "Gecerli bir secim numarasi girin."))
 			continue
 		}
 		criteria.ClinicID = matches[selected-1].ID
-		fmt.Printf("Secilen poliklinik: %s (ID: %d)\n", matches[selected-1].Name, criteria.ClinicID)
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("Secilen poliklinik: %s (ID: %d)", matches[selected-1].Name, criteria.ClinicID)))
 		return criteria, nil
 	}
 }
@@ -389,18 +459,18 @@ func normalizeSearchText(value string) string {
 
 func printAvailability(items []mhrs.Availability, checkedAt time.Time) {
 	fmt.Print("\a")
-	fmt.Println("============================================================")
-	fmt.Printf("RANDEVU BULUNDU! Kontrol zamani: %s\n", checkedAt.Format("02.01.2006 15:04:05"))
+	fmt.Println(styled(ansiDim, "============================================================"))
+	fmt.Println(styled(ansiBoldGreen, fmt.Sprintf("RANDEVU BULUNDU! Kontrol zamani: %s", formatTurkishDateTime(checkedAt, true))))
 	for index, item := range items {
-		fmt.Printf("\n%d. secenek\n", index+1)
-		fmt.Printf("   Hastane: %s\n", displayValue(item.InstitutionName))
-		fmt.Printf("   Klinik: %s\n", displayValue(item.ClinicName))
-		fmt.Printf("   Hekim: %s\n", displayValue(item.DoctorName))
-		fmt.Printf("   Muayene yeri: %s\n", displayValue(item.ExaminationName))
-		fmt.Printf("   Zaman: %s\n", displayValue(item.StartTime))
+		fmt.Printf("\n%s\n", styled(ansiBoldGreen, fmt.Sprintf("%d. secenek", index+1)))
+		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Hastane:"), displayValue(item.InstitutionName))
+		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Klinik:"), displayValue(item.ClinicName))
+		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Hekim:"), displayValue(item.DoctorName))
+		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Muayene yeri:"), displayValue(item.ExaminationName))
+		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Zaman:"), formatAppointmentDate(item.StartTime))
 	}
 	fmt.Println("\nHemen kontrol et: https://mhrs.gov.tr/vatandas/#/")
-	fmt.Println("============================================================")
+	fmt.Println(styled(ansiDim, "============================================================"))
 }
 
 func displayValue(value string) string {
@@ -415,7 +485,7 @@ func readLine(reader *bufio.Reader, prompt string) (string, error) {
 }
 
 func readPrompt(reader *bufio.Reader, writer io.Writer, prompt string) (string, error) {
-	fmt.Fprint(writer, prompt)
+	fmt.Fprint(writer, styled(ansiBoldCyan, prompt))
 	value, err := reader.ReadString('\n')
 	if err != nil && len(value) == 0 {
 		return "", err

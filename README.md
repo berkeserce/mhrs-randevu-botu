@@ -20,6 +20,8 @@ etkilenebilir.
 - İl için güncel poliklinik listesini MHRS'den getirir.
 - Tek seferlik veya belirli aralıklarla randevu kontrolü yapar.
 - Randevu bulunduğunda ayrıntıları terminale yazar ve terminal zilini çalar.
+- Tarihleri Türkiye saatiyle, Türkçe ay adı ve `TSİ` ekiyle gösterir.
+- Durumları renkli terminal çıktısıyla birbirinden ayırır.
 - CAPTCHA, SMS doğrulaması veya oran sınırlaması aşmaya çalışmaz.
 
 ## Gereksinimler
@@ -101,6 +103,20 @@ go run ./cmd/mhrs-randevu-botu -il 34 -interval 10m
 
 Programı durdurmak için `Ctrl+C` kullanın. Sürekli sorgulamada bir dakikanın
 altındaki aralıklara izin verilmez.
+
+### Terminal renkleri ve saat
+
+Tüm oturum, kontrol ve randevu zamanları `10 Ağustos 2026 17:13:59 TSİ`
+biçiminde gösterilir. Renkler yalnızca etkileşimli terminalde etkinleştirilir;
+dosyaya veya pipe'a yönlendirilen çıktıya ANSI kodu yazılmaz.
+
+Renkleri elle kapatmak için:
+
+```powershell
+go run ./cmd/mhrs-randevu-botu -no-color
+```
+
+Standart `NO_COLOR` ortam değişkeni de desteklenir.
 
 ### Oturum yönetimi
 
