@@ -1,11 +1,65 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/berkeserce/mhrs-randevu-botu/internal/mhrs"
 )
+
+func TestPromptInteractiveConfig(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("34\n5\n2\n10\n"))
+	var output bytes.Buffer
+	config, err := promptInteractiveConfig(input, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cityID != 34 || config.days != 5 || config.once || config.interval != 10*time.Minute {
+		t.Fatalf("config = %#v", config)
+	}
+}
+
+func TestPromptInteractiveConfigDefaults(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("34\n\n\n\n"))
+	var output bytes.Buffer
+	config, err := promptInteractiveConfig(input, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cityID != 34 || config.days != 3 || config.once || config.interval != 5*time.Minute {
+		t.Fatalf("config = %#v", config)
+	}
+}
+
+func TestPromptInteractiveConfigSingleCheck(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("34\n7\n1\n"))
+	var output bytes.Buffer
+	config, err := promptInteractiveConfig(input, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.once || config.days != 7 {
+		t.Fatalf("config = %#v", config)
+	}
+}
+
+func TestPromptInteractiveConfigRetriesInvalidAnswers(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("0\n34\n17\n5\n3\n2\n0\n10\n"))
+	var output bytes.Buffer
+	config, err := promptInteractiveConfig(input, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.cityID != 34 || config.days != 5 || config.once || config.interval != 10*time.Minute {
+		t.Fatalf("config = %#v", config)
+	}
+	if !strings.Contains(output.String(), "Lutfen") {
+		t.Fatalf("retry warning missing from output: %q", output.String())
+	}
+}
 
 func TestValidateSearchCriteria(t *testing.T) {
 	valid := mhrs.SearchCriteria{CityID: 34, Gender: "F"}
@@ -51,8 +105,8 @@ func TestFilterAvailabilityByWindow(t *testing.T) {
 }
 
 func TestFilterClinicsHandlesTurkishI(t *testing.T) {
-	clinics := []mhrs.ClinicOption{{ID: 1, Name: "İç Hastalıkları"}, {ID: 2, Name: "Kardiyoloji"}}
-	matches := filterClinics(clinics, "iç hastalıkları")
+	clinics := []mhrs.ClinicOption{{ID: 1, Name: "\u0130\u00e7 Hastal\u0131klar\u0131"}, {ID: 2, Name: "Kardiyoloji"}}
+	matches := filterClinics(clinics, "i\u00e7 hastal\u0131klar\u0131")
 	if len(matches) != 1 || matches[0].ID != 1 {
 		t.Fatalf("matches = %#v", matches)
 	}

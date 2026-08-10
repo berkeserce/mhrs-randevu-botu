@@ -38,7 +38,25 @@ go mod download
 
 ## Kullanım
 
-İlk denemeyi tek sorguyla yapmak için il plaka kodunu verin:
+En kolay kullanım için parametre vermeden çalıştırın:
+
+```powershell
+go run ./cmd/mhrs-randevu-botu
+```
+
+Uygulama terminalde sırasıyla şunları sorar:
+
+1. İl plaka kodu
+2. Kaç günlük randevu penceresi istendiği (1-16 gün)
+3. Tek sorgu veya sürekli takip seçimi
+4. Sürekli takipte kontrol aralığı
+
+Ardından kayıtlı oturumu kullanır veya gerekirse tarayıcı girişini açar ve
+poliklinik seçimine geçer.
+
+### Parametrelerle kullanım
+
+İlk denemeyi tek sorguyla yapmak için il plaka kodunu verebilirsiniz:
 
 ```powershell
 go run ./cmd/mhrs-randevu-botu -once -il 34

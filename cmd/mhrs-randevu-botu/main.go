@@ -6,8 +6,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +45,19 @@ func main() {
 		fmt.Println("Kayitli MHRS oturumu silindi.")
 		return
 	}
+	if flag.NFlag() == 0 {
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			exitWithError(errors.New("parametresiz kullanim icin etkilesimli terminal gerekli; secenekler icin -help kullanin"))
+		}
+		config, err := promptInteractiveConfig(bufio.NewReader(os.Stdin), os.Stdout)
+		if err != nil {
+			exitWithError(err)
+		}
+		*cityID = config.cityID
+		*days = config.days
+		*once = config.once
+		*interval = config.interval
+	}
 
 	criteria := mhrs.SearchCriteria{
 		ActionID: 200, ActionIDs: []int64{200, 204, 218}, Gender: strings.ToUpper(strings.TrimSpace(*gender)),
@@ -51,6 +66,65 @@ func main() {
 	}
 	if err := runWatch(*chromiumPath, *browserTimeout, *interval, *once, *refreshSession, *days, criteria); err != nil {
 		exitWithError(err)
+	}
+}
+
+type interactiveConfig struct {
+	cityID   int64
+	days     int
+	once     bool
+	interval time.Duration
+}
+
+func promptInteractiveConfig(reader *bufio.Reader, writer io.Writer) (interactiveConfig, error) {
+	fmt.Fprintln(writer, "============================================================")
+	fmt.Fprintln(writer, "MHRS Randevu Botu")
+	fmt.Fprintln(writer, "Yalnizca uygun randevuyu sorgular ve bildirir; randevu almaz.")
+	fmt.Fprintln(writer, "============================================================")
+
+	city, err := promptNumber(reader, writer, "Il plaka kodu (1-81): ", 1, 81, 0)
+	if err != nil {
+		return interactiveConfig{}, err
+	}
+	days, err := promptNumber(reader, writer, "Kac gun icindeki randevular aransin? (1-16) [3]: ", 1, maxAppointmentWindowDays, 3)
+	if err != nil {
+		return interactiveConfig{}, err
+	}
+	mode, err := promptNumber(reader, writer, "Kontrol tipi: 1=Tek sorgu, 2=Suresi dolana kadar takip [2]: ", 1, 2, 2)
+	if err != nil {
+		return interactiveConfig{}, err
+	}
+
+	config := interactiveConfig{cityID: int64(city), days: days, once: mode == 1, interval: 5 * time.Minute}
+	if !config.once {
+		minutes, err := promptNumber(reader, writer, "Kontrol araligi kac dakika olsun? [5]: ", 1, 24*60, 5)
+		if err != nil {
+			return interactiveConfig{}, err
+		}
+		config.interval = time.Duration(minutes) * time.Minute
+	}
+	modeText := "tek sorgu"
+	if !config.once {
+		modeText = fmt.Sprintf("surekli takip, %s aralikla", config.interval)
+	}
+	fmt.Fprintf(writer, "\nSecimler: il=%d, pencere=%d gun, mod=%s\n\n", config.cityID, config.days, modeText)
+	return config, nil
+}
+
+func promptNumber(reader *bufio.Reader, writer io.Writer, prompt string, minValue, maxValue, defaultValue int) (int, error) {
+	for {
+		value, err := readPrompt(reader, writer, prompt)
+		if err != nil {
+			return 0, err
+		}
+		if value == "" && defaultValue >= minValue && defaultValue <= maxValue {
+			return defaultValue, nil
+		}
+		number, err := strconv.Atoi(value)
+		if err == nil && number >= minValue && number <= maxValue {
+			return number, nil
+		}
+		fmt.Fprintf(writer, "Lutfen %d ile %d arasinda bir sayi girin.\n", minValue, maxValue)
 	}
 }
 
@@ -337,7 +411,11 @@ func displayValue(value string) string {
 }
 
 func readLine(reader *bufio.Reader, prompt string) (string, error) {
-	fmt.Print(prompt)
+	return readPrompt(reader, os.Stdout, prompt)
+}
+
+func readPrompt(reader *bufio.Reader, writer io.Writer, prompt string) (string, error) {
+	fmt.Fprint(writer, prompt)
 	value, err := reader.ReadString('\n')
 	if err != nil && len(value) == 0 {
 		return "", err
