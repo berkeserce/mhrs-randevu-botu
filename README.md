@@ -20,6 +20,7 @@ etkilenebilir.
 - İl için güncel poliklinik listesini MHRS'den getirir.
 - Tek seferlik veya belirli aralıklarla randevu kontrolü yapar.
 - Randevu bulunduğunda ayrıntıları terminale yazar ve terminal zilini çalar.
+- İsteğe bağlı olarak randevu ayrıntılarını Telegram mesajıyla bildirir.
 - Tarihleri Türkiye saatiyle, Türkçe ay adı ve `TSİ` ekiyle gösterir.
 - Durumları renkli terminal çıktısıyla birbirinden ayırır.
 - CAPTCHA, SMS doğrulaması veya oran sınırlaması aşmaya çalışmaz.
@@ -118,6 +119,50 @@ go run ./cmd/mhrs-randevu-botu -no-color
 
 Standart `NO_COLOR` ortam değişkeni de desteklenir.
 
+### Telegram bildirimi
+
+Telegram bildirimi isteğe bağlıdır. Bot tokenı veya chat ID kaynak koda, komut
+satırına ya da repodaki bir dosyaya yazılmaz; yalnızca ortam değişkenlerinden
+okunur.
+
+1. Telegram'da resmî `@BotFather` hesabını açın, `/newbot` komutuyla bot oluşturun
+   ve verilen tokenı güvenli tutun.
+2. Oluşturduğunuz botun sohbetini açıp `/start` gönderin. Botlar, kullanıcı sohbeti
+   başlatmadan kullanıcıya mesaj gönderemez.
+3. Aynı PowerShell penceresinde tokenı girin. `Read-Host` sayesinde token komut
+   geçmişine açık metin olarak yazılmaz:
+
+```powershell
+$env:TELEGRAM_BOT_TOKEN = Read-Host "Telegram bot tokeni"
+```
+
+4. Bot sohbetine `/start` gönderdikten sonra chat ID'yi alın:
+
+```powershell
+(Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/getUpdates").result.message.chat.id
+```
+
+5. Çıkan sayıyı ayarlayıp test bildirimi gönderin:
+
+```powershell
+$env:TELEGRAM_CHAT_ID = Read-Host "Telegram chat ID"
+go run ./cmd/mhrs-randevu-botu -telegram-test
+```
+
+`Telegram test bildirimi gonderildi.` mesajını ve Telegram bildirimini gördükten
+sonra uygulamayı normal biçimde çalıştırabilirsiniz:
+
+```powershell
+go run ./cmd/mhrs-randevu-botu
+```
+
+İki ortam değişkeni ayarlıysa uygun randevu bulunduğunda en fazla ilk beş
+seçeneğin hastane, poliklinik, hekim, muayene yeri ve zaman bilgisi Telegram'a
+gönderilir. Telegram isteği başarısız olursa uygulama hatayı terminalde bildirir;
+konsoldaki randevu sonucu yine gösterilir. Değişkenler yalnızca mevcut PowerShell
+oturumu boyunca geçerlidir. Proje `.env` dosyalarını otomatik olarak yüklemez;
+`.env.example` yalnızca gereken değişken adlarını gösterir.
+
 ### Oturum yönetimi
 
 JWT düz metin veya `.env` dosyası olarak saklanmaz. Windows kullanıcı hesabına
@@ -164,6 +209,9 @@ go run ./cmd/mhrs-randevu-botu -help
 - Chromium giriş için geçici, ayrı bir profil kullanır; işlem bitince profil
   silinir ve pencere kapanır.
 - Proje içine `.env` dosyaları, JWT veya kişisel çıktı eklemeyin.
+- Telegram bot tokenını parola gibi koruyun. Telegram bildirimi hastane,
+  poliklinik, hekim ve randevu zamanı gibi sağlıkla ilişkili bilgileri Telegram'a
+  aktarır; bu özelliği yalnızca bunu kabul ediyorsanız etkinleştirin.
 
 ## Proje kapsamı
 

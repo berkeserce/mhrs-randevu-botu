@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,28 @@ func TestFilterAvailabilityByWindow(t *testing.T) {
 	got = filterAvailabilityByWindow(items, now, now.Add(16*24*time.Hour))
 	if len(got) != 3 || got[2].DoctorName != "too-late" {
 		t.Fatalf("16-day items = %#v", got)
+	}
+}
+
+func TestTelegramAppointmentMessageLimitsDetails(t *testing.T) {
+	items := make([]mhrs.Availability, 6)
+	for index := range items {
+		items[index] = mhrs.Availability{
+			InstitutionName: fmt.Sprintf("Hastane %d", index+1),
+			ClinicName:      "Cildiye",
+			DoctorName:      "Test Hekimi",
+			ExaminationName: "Test Poliklinigi",
+			StartTime:       "12.08.2026 09:20",
+		}
+	}
+	message := telegramAppointmentMessage(items, time.Date(2026, 8, 10, 17, 0, 0, 0, turkeyLocation))
+	for _, expected := range []string{"MHRS RANDEVUSU BULUNDU", "Hastane 1", "5. secenek", "1 secenek daha var", "uygulama randevu almaz"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message missing %q: %s", expected, message)
+		}
+	}
+	if strings.Contains(message, "Hastane 6") {
+		t.Fatalf("message should omit sixth appointment details: %s", message)
 	}
 }
 

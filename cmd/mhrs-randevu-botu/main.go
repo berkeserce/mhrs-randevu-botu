@@ -16,6 +16,7 @@ import (
 	"github.com/berkeserce/mhrs-randevu-botu/internal/browserauth"
 	"github.com/berkeserce/mhrs-randevu-botu/internal/mhrs"
 	"github.com/berkeserce/mhrs-randevu-botu/internal/sessioncache"
+	"github.com/berkeserce/mhrs-randevu-botu/internal/telegramnotify"
 	"golang.org/x/term"
 )
 
@@ -44,6 +45,7 @@ func main() {
 	refreshSession := flag.Bool("refresh-session", false, "kayitli JWT yerine Chromium ile yeni oturum al")
 	clearSession := flag.Bool("clear-session", false, "kayitli sifreli MHRS oturumunu sil ve cik")
 	noColor := flag.Bool("no-color", false, "terminal renklerini kapat")
+	telegramTest := flag.Bool("telegram-test", false, "Telegram bildirim ayarlarini test et ve cik")
 	once := flag.Bool("once", false, "randevuyu yalnizca bir kez kontrol et")
 	interval := flag.Duration("interval", 5*time.Minute, "randevu kontrol araligi (en az 1 dakika)")
 	days := flag.Int("gun", 3, "randevu tarihi ve takip suresi (1-16 gun)")
@@ -62,6 +64,22 @@ func main() {
 			exitWithError(err)
 		}
 		fmt.Println(styled(ansiGreen, "Kayitli MHRS oturumu silindi."))
+		return
+	}
+	notifier, err := telegramnotify.NewFromEnvironment()
+	if err != nil {
+		exitWithError(err)
+	}
+	if *telegramTest {
+		if notifier == nil {
+			exitWithError(errors.New("TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID ayarlanmamis"))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := notifier.Send(ctx, "MHRS Randevu Botu Telegram bildirimi calisiyor."); err != nil {
+			exitWithError(err)
+		}
+		fmt.Println(styled(ansiGreen, "Telegram test bildirimi gonderildi."))
 		return
 	}
 	if noRunConfigurationFlags() {
@@ -83,7 +101,7 @@ func main() {
 		DoctorID: *doctorID, CityID: *cityID, DistrictID: *districtID,
 		ClinicID: *clinicID, InstitutionID: *institutionID, ExaminationID: *examinationID,
 	}
-	if err := runWatch(*chromiumPath, *browserTimeout, *interval, *once, *refreshSession, *days, criteria); err != nil {
+	if err := runWatch(*chromiumPath, *browserTimeout, *interval, *once, *refreshSession, *days, criteria, notifier); err != nil {
 		exitWithError(err)
 	}
 }
@@ -245,7 +263,11 @@ func acquireBrowserToken(parent context.Context, preferredExecutable string, tim
 	return token, info, nil
 }
 
-func runWatch(executablePath string, browserTimeout, interval time.Duration, once, refreshSession bool, days int, criteria mhrs.SearchCriteria) error {
+type messageSender interface {
+	Send(context.Context, string) error
+}
+
+func runWatch(executablePath string, browserTimeout, interval time.Duration, once, refreshSession bool, days int, criteria mhrs.SearchCriteria, notifier messageSender) error {
 	if err := validateSearchCriteria(criteria, interval, once, days); err != nil {
 		return err
 	}
@@ -309,6 +331,16 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 		eligible := filterAvailabilityByWindow(items, checkedAt, watchDeadline)
 		if len(eligible) > 0 {
 			printAvailability(eligible, checkedAt)
+			if notifier != nil {
+				notificationContext, cancel := context.WithTimeout(ctx, 20*time.Second)
+				err := notifier.Send(notificationContext, telegramAppointmentMessage(eligible, checkedAt))
+				cancel()
+				if err != nil {
+					fmt.Println(styled(ansiYellow, "Uyari: "+err.Error()+" Konsol bildirimi kullanilabilir."))
+				} else {
+					fmt.Println(styled(ansiGreen, "Telegram bildirimi gonderildi."))
+				}
+			}
 			return nil
 		}
 		noSlotMessage := fmt.Sprintf("[%s] Onumuzdeki %d gun icinde uygun randevu bulunamadi.", formatTurkishDateTime(checkedAt, true), days)
@@ -472,6 +504,40 @@ func printAvailability(items []mhrs.Availability, checkedAt time.Time) {
 	}
 	fmt.Println("\nHemen kontrol et: https://mhrs.gov.tr/vatandas/#/")
 	fmt.Println(styled(ansiDim, "============================================================"))
+}
+
+func telegramAppointmentMessage(items []mhrs.Availability, checkedAt time.Time) string {
+	const maxDisplayedAppointments = 5
+	var message strings.Builder
+	fmt.Fprintf(&message, "MHRS RANDEVUSU BULUNDU\n\nKontrol: %s\n", formatTurkishDateTime(checkedAt, true))
+	limit := len(items)
+	if limit > maxDisplayedAppointments {
+		limit = maxDisplayedAppointments
+	}
+	for index, item := range items[:limit] {
+		fmt.Fprintf(&message, "\n%d. secenek\n", index+1)
+		fmt.Fprintf(&message, "Hastane: %s\n", compactTelegramValue(item.InstitutionName))
+		fmt.Fprintf(&message, "Poliklinik: %s\n", compactTelegramValue(item.ClinicName))
+		fmt.Fprintf(&message, "Hekim: %s\n", compactTelegramValue(item.DoctorName))
+		fmt.Fprintf(&message, "Muayene yeri: %s\n", compactTelegramValue(item.ExaminationName))
+		fmt.Fprintf(&message, "Zaman: %s\n", formatAppointmentDate(item.StartTime))
+	}
+	if remaining := len(items) - limit; remaining > 0 {
+		fmt.Fprintf(&message, "\n%d secenek daha var.\n", remaining)
+	}
+	message.WriteString("\nKontrol et: https://mhrs.gov.tr/vatandas/#/\n")
+	message.WriteString("Bu uygulama randevu almaz; yalnizca bildirir.")
+	return message.String()
+}
+
+func compactTelegramValue(value string) string {
+	const maxRunes = 120
+	value = displayValue(value)
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes-3]) + "..."
 }
 
 func displayValue(value string) string {
