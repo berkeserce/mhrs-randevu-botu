@@ -31,8 +31,9 @@
 
 # 🏥 MHRS Randevu Botu
 
-**Uygun MHRS randevularını takip eden, terminal ve Telegram üzerinden bildiren
-okuma odaklı Go uygulaması.**
+**MHRS parolası istemeden; görünür tarayıcıda e-Devlet veya e-Nabız girişiyle
+uygun randevuları takip eden, terminal ve Telegram üzerinden bildiren Go
+uygulaması.**
 
 ![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)
@@ -48,6 +49,7 @@ okuma odaklı Go uygulaması.**
 ## 📚 İçindekiler
 
 - [Proje ne yapar?](#-proje-ne-yapar)
+- [Parola istemeden nasıl giriş yapıyor?](#-parola-istemeden-nasıl-giriş-yapıyor)
 - [Özellikler](#-özellikler)
 - [Gereksinimler](#-gereksinimler)
 - [Kurulum](#-kurulum)
@@ -75,6 +77,30 @@ olarak Telegram mesajı gönderir.
 | :---: | :---: | :---: | :---: |
 | 1–16 günlük pencere | Windows DPAPI | Terminal + Telegram | Randevu almaz |
 | Tek veya sürekli kontrol | Manuel e-Devlet/e-Nabız girişi | Türkiye saati | Doğrulama aşmaz |
+
+## 🔑 Parola istemeden nasıl giriş yapıyor?
+
+Proje, MHRS'nin e-Devlet ve e-Nabız üzerinden sunduğu oturum açma akışını
+kullanır. Kullanıcıdan MHRS, e-Devlet veya e-Nabız parolası istemek yerine girişi
+görünür tarayıcıda tamamen kullanıcıya bırakır.
+
+| Adım | Ne olur? | Uygulamanın okumadığı veri |
+|---:|---|---|
+| **1** | Uygulama görünür Chromium/Chrome/Edge penceresini ayrı ve geçici bir profille açar. | Mevcut tarayıcı geçmişiniz ve normal profiliniz |
+| **2** | e-Devlet veya e-Nabız seçimini yapar, resmî giriş ekranındaki alanları kendiniz doldurursunuz. | T.C. kimlik numarası, parola, SMS kodu ve form alanları |
+| **3** | Giriş tamamlanıp tarayıcı MHRS alan adına döndüğünde uygulama yalnızca MHRS'nin oluşturduğu oturum JWT'sini okur. | e-Devlet/e-Nabız oturumu ve parolası |
+| **4** | JWT doğrulanır, tarayıcı kapanır ve token Windows DPAPI ile şifrelenerek sonraki çalıştırma için saklanır. | Düz metin JWT veya merkezi bir sunucu kaydı |
+
+> [!NOTE]
+> Uygulama giriş ekranlarını otomatik doldurmaz ve tuş vuruşlarını dinlemez.
+> Yalnızca tarayıcı yeniden `mhrs.gov.tr` alanına döndükten sonra MHRS'ye ait
+> cookie/localStorage içindeki oturum tokenını kontrol eder. JWT hassas bir
+> kimlik doğrulama verisidir; bu nedenle hiçbir zaman repoya veya loglara
+> yazılmaz.
+
+Bu yöntem sayesinde kullanıcının parolası uygulamaya teslim edilmez. Kayıtlı
+MHRS oturumu geçerli olduğu sürece sonraki çalıştırmalarda tarayıcı açılmaz;
+oturum sona erdiğinde kullanıcıdan aynı manuel giriş tekrar istenir.
 
 ## ✨ Özellikler
 
