@@ -121,31 +121,32 @@ Standart `NO_COLOR` ortam değişkeni de desteklenir.
 
 ### Telegram bildirimi
 
-Telegram bildirimi isteğe bağlıdır. Bot tokenı veya chat ID kaynak koda, komut
-satırına ya da repodaki bir dosyaya yazılmaz; yalnızca ortam değişkenlerinden
-okunur.
+Telegram bildirimi isteğe bağlıdır. Ayarlar, Git tarafından yok sayılan yerel
+`.env` dosyasından otomatik okunur. `.env` dosyasını public repoya veya başka bir
+kişiye göndermeyin.
 
 1. Telegram'da resmî `@BotFather` hesabını açın, `/newbot` komutuyla bot oluşturun
    ve verilen tokenı güvenli tutun.
 2. Oluşturduğunuz botun sohbetini açıp `/start` gönderin. Botlar, kullanıcı sohbeti
    başlatmadan kullanıcıya mesaj gönderemez.
-3. Aynı PowerShell penceresinde tokenı girin. `Read-Host` sayesinde token komut
-   geçmişine açık metin olarak yazılmaz:
+3. `.env.example` dosyasını `.env` adıyla kopyalayın:
 
 ```powershell
-$env:TELEGRAM_BOT_TOKEN = Read-Host "Telegram bot tokeni"
+Copy-Item .env.example .env
 ```
 
-4. Bot sohbetine `/start` gönderdikten sonra chat ID'yi alın:
+4. `.env` dosyasını açıp `TELEGRAM_BOT_TOKEN=` satırındaki eşittir işaretinin
+   sağına BotFather'ın verdiği tokenı yazın.
+5. Bot sohbetine `/start` gönderdikten sonra chat ID'yi bulun:
 
 ```powershell
-(Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/getUpdates").result.message.chat.id
+go run ./cmd/mhrs-randevu-botu -telegram-chat-id
 ```
 
-5. Çıkan sayıyı ayarlayıp test bildirimi gönderin:
+6. Çıkan sayıyı `.env` içindeki `TELEGRAM_CHAT_ID=` satırına yazıp test bildirimi
+   gönderin:
 
 ```powershell
-$env:TELEGRAM_CHAT_ID = Read-Host "Telegram chat ID"
 go run ./cmd/mhrs-randevu-botu -telegram-test
 ```
 
@@ -159,9 +160,8 @@ go run ./cmd/mhrs-randevu-botu
 İki ortam değişkeni ayarlıysa uygun randevu bulunduğunda en fazla ilk beş
 seçeneğin hastane, poliklinik, hekim, muayene yeri ve zaman bilgisi Telegram'a
 gönderilir. Telegram isteği başarısız olursa uygulama hatayı terminalde bildirir;
-konsoldaki randevu sonucu yine gösterilir. Değişkenler yalnızca mevcut PowerShell
-oturumu boyunca geçerlidir. Proje `.env` dosyalarını otomatik olarak yüklemez;
-`.env.example` yalnızca gereken değişken adlarını gösterir.
+konsoldaki randevu sonucu yine gösterilir. İşletim sistemi ortam değişkenleri de
+desteklenir ve ayarlanmışlarsa `.env` içindeki aynı adlı değerlerden önceliklidir.
 
 ### Oturum yönetimi
 

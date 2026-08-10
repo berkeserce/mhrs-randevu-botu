@@ -78,3 +78,21 @@ func TestSendDoesNotLeakTokenFromAPIError(t *testing.T) {
 		t.Fatalf("token leaked in error: %v", err)
 	}
 }
+
+func TestDiscoverChatIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !strings.HasSuffix(request.URL.Path, "/getUpdates") {
+			t.Errorf("path = %q", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"ok":true,"result":[{"message":{"chat":{"id":123}}},{"message":{"chat":{"id":123}}},{"message":{"chat":{"id":456}}}]}`)
+	}))
+	defer server.Close()
+
+	chatIDs, err := discoverChatIDs(context.Background(), server.URL, "123:secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chatIDs) != 2 || chatIDs[0] != "123" || chatIDs[1] != "456" {
+		t.Fatalf("chat IDs = %#v", chatIDs)
+	}
+}

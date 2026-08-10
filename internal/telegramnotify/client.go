@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,6 +52,56 @@ func newClient(baseURL, token, chatID string, httpClient *http.Client) *Client {
 	}
 }
 
+func DiscoverChatIDsFromEnvironment(ctx context.Context) ([]string, error) {
+	token := strings.TrimSpace(os.Getenv(botTokenEnvironment))
+	if token == "" {
+		return nil, fmt.Errorf("%s ayarlanmamis", botTokenEnvironment)
+	}
+	return discoverChatIDs(ctx, productionBaseURL, token, &http.Client{Timeout: 15 * time.Second})
+}
+
+func discoverChatIDs(ctx context.Context, baseURL, token string, httpClient *http.Client) ([]string, error) {
+	endpoint := strings.TrimRight(baseURL, "/") + "/bot" + url.PathEscape(token) + "/getUpdates"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, errors.New("Telegram istegi olusturulamadi")
+	}
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return nil, errors.New("Telegram servisine baglanilamadi")
+	}
+	defer response.Body.Close()
+
+	var result struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+		Result      []struct {
+			Message *struct {
+				Chat struct {
+					ID int64 `json:"id"`
+				} `json:"chat"`
+			} `json:"message"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("Telegram gecersiz yanit verdi (HTTP %d)", response.StatusCode)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || !result.OK {
+		return nil, telegramAPIError(response.StatusCode, result.Description, token)
+	}
+
+	seen := make(map[int64]bool)
+	chatIDs := make([]string, 0)
+	for _, update := range result.Result {
+		if update.Message == nil || seen[update.Message.Chat.ID] {
+			continue
+		}
+		seen[update.Message.Chat.ID] = true
+		chatIDs = append(chatIDs, strconv.FormatInt(update.Message.Chat.ID, 10))
+	}
+	return chatIDs, nil
+}
+
 func (c *Client) Send(ctx context.Context, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -84,12 +135,16 @@ func (c *Client) Send(ctx context.Context, message string) error {
 		return fmt.Errorf("Telegram gecersiz yanit verdi (HTTP %d)", response.StatusCode)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || !result.OK {
-		description := strings.TrimSpace(result.Description)
-		if description == "" {
-			description = "istek reddedildi"
-		}
-		description = strings.ReplaceAll(description, c.botToken, "[gizlendi]")
-		return fmt.Errorf("Telegram bildirimi gonderilemedi (HTTP %d): %s", response.StatusCode, description)
+		return telegramAPIError(response.StatusCode, result.Description, c.botToken)
 	}
 	return nil
+}
+
+func telegramAPIError(status int, description, token string) error {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = "istek reddedildi"
+	}
+	description = strings.ReplaceAll(description, token, "[gizlendi]")
+	return fmt.Errorf("Telegram istegi reddedildi (HTTP %d): %s", status, description)
 }

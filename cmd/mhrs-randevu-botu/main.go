@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/berkeserce/mhrs-randevu-botu/internal/browserauth"
+	"github.com/berkeserce/mhrs-randevu-botu/internal/envfile"
 	"github.com/berkeserce/mhrs-randevu-botu/internal/mhrs"
 	"github.com/berkeserce/mhrs-randevu-botu/internal/sessioncache"
 	"github.com/berkeserce/mhrs-randevu-botu/internal/telegramnotify"
@@ -46,6 +47,7 @@ func main() {
 	clearSession := flag.Bool("clear-session", false, "kayitli sifreli MHRS oturumunu sil ve cik")
 	noColor := flag.Bool("no-color", false, "terminal renklerini kapat")
 	telegramTest := flag.Bool("telegram-test", false, "Telegram bildirim ayarlarini test et ve cik")
+	telegramChatID := flag.Bool("telegram-chat-id", false, "bota mesaj atan Telegram chat ID'lerini goster ve cik")
 	once := flag.Bool("once", false, "randevuyu yalnizca bir kez kontrol et")
 	interval := flag.Duration("interval", 5*time.Minute, "randevu kontrol araligi (en az 1 dakika)")
 	days := flag.Int("gun", 3, "randevu tarihi ve takip suresi (1-16 gun)")
@@ -64,6 +66,29 @@ func main() {
 			exitWithError(err)
 		}
 		fmt.Println(styled(ansiGreen, "Kayitli MHRS oturumu silindi."))
+		return
+	}
+	loadedEnvironment, err := envfile.Load(".env")
+	if err != nil {
+		exitWithError(err)
+	}
+	if loadedEnvironment {
+		fmt.Println(styled(ansiDim, "Yerel .env ayarlari yuklendi."))
+	}
+	if *telegramChatID {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		chatIDs, err := telegramnotify.DiscoverChatIDsFromEnvironment(ctx)
+		if err != nil {
+			exitWithError(err)
+		}
+		if len(chatIDs) == 0 {
+			exitWithError(errors.New("chat ID bulunamadi; Telegram'da bota /start gonderip yeniden deneyin"))
+		}
+		fmt.Println(styled(ansiGreen, "Bulunan Telegram chat ID'leri:"))
+		for _, chatID := range chatIDs {
+			fmt.Println(styled(ansiRed, chatID))
+		}
 		return
 	}
 	notifier, err := telegramnotify.NewFromEnvironment()
