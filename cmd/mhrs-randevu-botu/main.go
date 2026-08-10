@@ -27,6 +27,7 @@ const (
 	ansiBoldGreen            = "\x1b[1;32m"
 	ansiYellow               = "\x1b[33m"
 	ansiRed                  = "\x1b[31m"
+	ansiBoldRed              = "\x1b[1;31m"
 	ansiMagenta              = "\x1b[35m"
 	ansiDim                  = "\x1b[2m"
 )
@@ -395,7 +396,7 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 	if criteria.ClinicID > 0 {
 		for _, clinic := range clinics {
 			if clinic.ID == criteria.ClinicID {
-				fmt.Println(styled(ansiGreen, fmt.Sprintf("Poliklinik dogrulandi: %s (ID: %d)", clinic.Name, clinic.ID)))
+				fmt.Println(styled(ansiBoldRed, fmt.Sprintf("Poliklinik dogrulandi: %s (ID: %d)", clinic.Name, clinic.ID)))
 				return criteria, nil
 			}
 		}
@@ -424,7 +425,7 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 			continue
 		}
 		for index, clinic := range matches {
-			fmt.Printf("%s %s (ID: %d)\n", styled(ansiMagenta, fmt.Sprintf("%2d.", index+1)), clinic.Name, clinic.ID)
+			fmt.Printf("%s %s (ID: %d)\n", styled(ansiMagenta, fmt.Sprintf("%2d.", index+1)), styled(ansiRed, clinic.Name), clinic.ID)
 		}
 		choice, err := readLine(reader, "Secim numarasi: ")
 		if err != nil {
@@ -436,7 +437,7 @@ func selectClinic(ctx context.Context, client *mhrs.Client, criteria mhrs.Search
 			continue
 		}
 		criteria.ClinicID = matches[selected-1].ID
-		fmt.Println(styled(ansiGreen, fmt.Sprintf("Secilen poliklinik: %s (ID: %d)", matches[selected-1].Name, criteria.ClinicID)))
+		fmt.Println(styled(ansiBoldRed, fmt.Sprintf("Secilen poliklinik: %s (ID: %d)", matches[selected-1].Name, criteria.ClinicID)))
 		return criteria, nil
 	}
 }
@@ -464,7 +465,7 @@ func printAvailability(items []mhrs.Availability, checkedAt time.Time) {
 	for index, item := range items {
 		fmt.Printf("\n%s\n", styled(ansiBoldGreen, fmt.Sprintf("%d. secenek", index+1)))
 		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Hastane:"), displayValue(item.InstitutionName))
-		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Klinik:"), displayValue(item.ClinicName))
+		fmt.Printf("   %s %s\n", styled(ansiBoldRed, "Klinik:"), styled(ansiRed, displayValue(item.ClinicName)))
 		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Hekim:"), displayValue(item.DoctorName))
 		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Muayene yeri:"), displayValue(item.ExaminationName))
 		fmt.Printf("   %s %s\n", styled(ansiBoldCyan, "Zaman:"), formatAppointmentDate(item.StartTime))
@@ -485,8 +486,18 @@ func readLine(reader *bufio.Reader, prompt string) (string, error) {
 }
 
 func readPrompt(reader *bufio.Reader, writer io.Writer, prompt string) (string, error) {
-	fmt.Fprint(writer, styled(ansiBoldCyan, prompt))
+	promptColor := ansiBoldCyan
+	if strings.Contains(strings.ToLower(prompt), "poliklinik") {
+		promptColor = ansiBoldRed
+	}
+	fmt.Fprint(writer, styled(promptColor, prompt))
+	if colorOutput {
+		fmt.Fprint(writer, ansiRed)
+	}
 	value, err := reader.ReadString('\n')
+	if colorOutput {
+		fmt.Fprint(writer, ansiReset)
+	}
 	if err != nil && len(value) == 0 {
 		return "", err
 	}

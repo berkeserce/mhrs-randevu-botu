@@ -42,6 +42,25 @@ func TestStyledOutputCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestReadPromptColorsUserInputAndClinicPromptRed(t *testing.T) {
+	previousColorOutput := colorOutput
+	colorOutput = true
+	t.Cleanup(func() { colorOutput = previousColorOutput })
+
+	var output bytes.Buffer
+	value, err := readPrompt(bufio.NewReader(strings.NewReader("cildiye\n")), &output, "Poliklinik ara: ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "cildiye" {
+		t.Fatalf("value = %q", value)
+	}
+	want := styled(ansiBoldRed, "Poliklinik ara: ") + ansiRed + ansiReset
+	if output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+}
+
 func TestPromptInteractiveConfigDefaults(t *testing.T) {
 	input := bufio.NewReader(strings.NewReader("34\n\n\n\n"))
 	var output bytes.Buffer
