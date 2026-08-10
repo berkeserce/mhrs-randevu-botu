@@ -309,6 +309,9 @@ func runWatch(executablePath string, browserTimeout, interval time.Duration, onc
 	for attempt := 0; ; attempt++ {
 		criteria, err = selectClinic(ctx, client, criteria, reader)
 		if err == nil {
+			criteria, err = selectDoctor(ctx, client, criteria, reader)
+		}
+		if err == nil {
 			break
 		}
 		if !errors.Is(err, mhrs.ErrSessionExpired) || attempt > 0 {
@@ -505,6 +508,180 @@ func filterClinics(clinics []mhrs.ClinicOption, query string) []mhrs.ClinicOptio
 	for _, clinic := range clinics {
 		if strings.Contains(normalizeSearchText(clinic.Name), normalizedQuery) {
 			result = append(result, clinic)
+		}
+	}
+	return result
+}
+
+func selectDoctor(ctx context.Context, client *mhrs.Client, criteria mhrs.SearchCriteria, reader *bufio.Reader) (mhrs.SearchCriteria, error) {
+	if criteria.DoctorID > 0 {
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("Hekim filtresi kullaniliyor (ID: %d).", criteria.DoctorID)))
+		return criteria, nil
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return criteria, nil
+	}
+
+	mode, err := promptNumber(reader, os.Stdout, "Hekim secimi: 1=Tum hekimler, 2=Belirli hekim [1]: ", 1, 2, 1)
+	if err != nil {
+		return criteria, err
+	}
+	if mode == 1 {
+		criteria.DoctorID = -1
+		fmt.Println(styled(ansiGreen, "Hekim filtresi: Tum hekimler"))
+		return criteria, nil
+	}
+
+	institutions, err := client.ListInstitutions(ctx, criteria)
+	if err != nil {
+		return criteria, fmt.Errorf("guncel hastane listesi alinamadi: %w", err)
+	}
+	if len(institutions) == 0 {
+		return criteria, errors.New("MHRS secilen il ve poliklinik icin hastane dondurmedi")
+	}
+
+	var institution mhrs.InstitutionOption
+	if criteria.InstitutionID > 0 {
+		for _, candidate := range institutions {
+			if candidate.ID == criteria.InstitutionID {
+				institution = candidate
+				break
+			}
+		}
+		if institution.ID == 0 {
+			return criteria, fmt.Errorf("-kurum %d secilen il ve poliklinik icin guncel MHRS listesinde yok", criteria.InstitutionID)
+		}
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("Hastane dogrulandi: %s (ID: %d)", institution.Name, institution.ID)))
+	} else {
+		institution, err = promptInstitution(reader, institutions)
+		if err != nil {
+			return criteria, err
+		}
+		criteria.InstitutionID = institution.ID
+	}
+
+	doctors, err := client.ListDoctors(ctx, criteria, institution)
+	if err != nil {
+		return criteria, fmt.Errorf("guncel hekim listesi alinamadi: %w", err)
+	}
+	if len(doctors) == 0 {
+		return criteria, errors.New("MHRS secilen hastane ve poliklinik icin hekim dondurmedi")
+	}
+	doctor, err := promptDoctor(reader, doctors)
+	if err != nil {
+		return criteria, err
+	}
+	criteria.DoctorID = doctor.ID
+	fmt.Println(styled(ansiGreen, fmt.Sprintf("Secilen hekim: %s (ID: %d)", doctor.Name, doctor.ID)))
+	return criteria, nil
+}
+
+func promptInstitution(reader *bufio.Reader, institutions []mhrs.InstitutionOption) (mhrs.InstitutionOption, error) {
+	if len(institutions) == 1 {
+		institution := institutions[0]
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("Secilen hastane: %s (ID: %d)", institution.Name, institution.ID)))
+		return institution, nil
+	}
+	for {
+		query, err := readLine(reader, "Hastane ara (ornek: sehir, devlet): ")
+		if err != nil {
+			return mhrs.InstitutionOption{}, err
+		}
+		if len([]rune(strings.TrimSpace(query))) < 2 {
+			fmt.Println(styled(ansiYellow, "En az iki karakter yazin."))
+			continue
+		}
+		matches := filterInstitutions(institutions, query)
+		if len(matches) == 0 {
+			fmt.Println(styled(ansiYellow, "Eslesen hastane bulunamadi; baska bir ifade deneyin."))
+			continue
+		}
+		if len(matches) > 25 {
+			fmt.Println(styled(ansiYellow, fmt.Sprintf("%d sonuc var; aramayi biraz daha daraltin.", len(matches))))
+			continue
+		}
+		for index, institution := range matches {
+			fmt.Printf("%s %s (ID: %d)\n", styled(ansiMagenta, fmt.Sprintf("%2d.", index+1)), institution.Name, institution.ID)
+		}
+		selected, err := promptSelectionNumber(reader, len(matches))
+		if err != nil {
+			return mhrs.InstitutionOption{}, err
+		}
+		if selected == 0 {
+			continue
+		}
+		institution := matches[selected-1]
+		fmt.Println(styled(ansiGreen, fmt.Sprintf("Secilen hastane: %s (ID: %d)", institution.Name, institution.ID)))
+		return institution, nil
+	}
+}
+
+func promptDoctor(reader *bufio.Reader, doctors []mhrs.DoctorOption) (mhrs.DoctorOption, error) {
+	if len(doctors) == 1 {
+		return doctors[0], nil
+	}
+	for {
+		query, err := readLine(reader, "Hekim ara (ad veya soyad): ")
+		if err != nil {
+			return mhrs.DoctorOption{}, err
+		}
+		if len([]rune(strings.TrimSpace(query))) < 2 {
+			fmt.Println(styled(ansiYellow, "En az iki karakter yazin."))
+			continue
+		}
+		matches := filterDoctors(doctors, query)
+		if len(matches) == 0 {
+			fmt.Println(styled(ansiYellow, "Eslesen hekim bulunamadi; baska bir ifade deneyin."))
+			continue
+		}
+		if len(matches) > 25 {
+			fmt.Println(styled(ansiYellow, fmt.Sprintf("%d sonuc var; aramayi biraz daha daraltin.", len(matches))))
+			continue
+		}
+		for index, doctor := range matches {
+			fmt.Printf("%s %s (ID: %d)\n", styled(ansiMagenta, fmt.Sprintf("%2d.", index+1)), doctor.Name, doctor.ID)
+		}
+		selected, err := promptSelectionNumber(reader, len(matches))
+		if err != nil {
+			return mhrs.DoctorOption{}, err
+		}
+		if selected == 0 {
+			continue
+		}
+		return matches[selected-1], nil
+	}
+}
+
+func promptSelectionNumber(reader *bufio.Reader, optionCount int) (int, error) {
+	choice, err := readLine(reader, "Secim numarasi: ")
+	if err != nil {
+		return 0, err
+	}
+	var selected int
+	if _, err := fmt.Sscan(choice, &selected); err != nil || selected < 1 || selected > optionCount {
+		fmt.Println(styled(ansiYellow, "Gecerli bir secim numarasi girin."))
+		return 0, nil
+	}
+	return selected, nil
+}
+
+func filterInstitutions(institutions []mhrs.InstitutionOption, query string) []mhrs.InstitutionOption {
+	normalizedQuery := normalizeSearchText(query)
+	result := make([]mhrs.InstitutionOption, 0)
+	for _, institution := range institutions {
+		if strings.Contains(normalizeSearchText(institution.Name), normalizedQuery) {
+			result = append(result, institution)
+		}
+	}
+	return result
+}
+
+func filterDoctors(doctors []mhrs.DoctorOption, query string) []mhrs.DoctorOption {
+	normalizedQuery := normalizeSearchText(query)
+	result := make([]mhrs.DoctorOption, 0)
+	for _, doctor := range doctors {
+		if strings.Contains(normalizeSearchText(doctor.Name), normalizedQuery) {
+			result = append(result, doctor)
 		}
 	}
 	return result

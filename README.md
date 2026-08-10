@@ -65,7 +65,8 @@ uygulaması.**
 ## 🎯 Proje ne yapar?
 
 MHRS Randevu Botu, kullanıcının belirlediği il ve poliklinik için uygun
-randevuları belirli aralıklarla sorgular. Seçilen tarih penceresine düşen bir
+randevuları belirli aralıklarla sorgular. Kullanıcı isterse belirli bir hastane
+ve hekimi seçerek takibi daraltabilir. Seçilen tarih penceresine düşen bir
 randevu bulunduğunda sonucu renkli terminal çıktısıyla gösterir ve isteğe bağlı
 olarak Telegram mesajı gönderir.
 
@@ -108,6 +109,7 @@ oturum sona erdiğinde kullanıcıdan aynı manuel giriş tekrar istenir.
 - 🌐 Görünür Chromium, Chrome veya Edge penceresinde manuel giriş
 - 🔒 MHRS JWT'sini Windows kullanıcı hesabına bağlı DPAPI şifrelemesiyle saklama
 - 🏥 Güncel poliklinik listesini getirip metinle arama
+- 👨‍⚕️ Tüm hekimleri izleme veya hastane üzerinden belirli bir hekim seçme
 - 📅 Başlangıç anına göre sabit, **1–16 günlük** randevu penceresi
 - 🔁 Tek sorgu veya süre dolana kadar periyodik takip
 - 🕒 Türkçe ay adları ve `TSİ` ekiyle okunabilir tarih/saat
@@ -163,6 +165,12 @@ Uygulama sırasıyla şunları sorar:
 3. Tek sorgu veya sürekli takip seçimi
 4. Sürekli takipte kontrol aralığı (varsayılan `5 dakika`)
 5. Aranacak poliklinik ve listeden seçim
+6. Tüm hekimler veya belirli bir hekim seçimi
+
+Belirli hekim seçildiğinde uygulama önce seçilen polikliniği sunan hastaneleri,
+ardından o hastanedeki hekimleri güncel MHRS kataloğundan getirir. Hastane ve
+hekim adı yazarak sonuçları daraltabilirsiniz. Varsayılan seçenek **Tüm
+hekimler**dir.
 
 İlk çalıştırmada görünür bir tarayıcı açılır. e-Devlet veya e-Nabız girişini
 tarayıcıda **kendiniz** tamamladıktan sonra uygulama MHRS'ye dönüldüğünü algılar,
@@ -187,6 +195,17 @@ Bilinen poliklinik ID'siyle seçim adımını geçme:
 ```powershell
 go run ./cmd/mhrs-randevu-botu -il 34 -klinik 136 -gun 3
 ```
+
+Bilinen hastane ve hekim ID'leriyle doğrudan belirli bir hekimi takip etme:
+
+```powershell
+go run ./cmd/mhrs-randevu-botu -il 34 -klinik 136 -kurum 1234 -hekim 5678 -gun 5
+```
+
+> [!TIP]
+> Hekim ID'sini ezberlemeniz gerekmez. Parametresiz veya yalnızca `-il` ile
+> çalıştırdığınızda uygulama poliklinik seçiminden sonra “Tüm hekimler / Belirli
+> hekim” sorusunu gösterir.
 
 > [!NOTE]
 > Randevu penceresi programın başladığı anda sabitlenir. Örneğin `-gun 5`, takip
@@ -366,7 +385,7 @@ go run ./cmd/mhrs-randevu-botu -help
 | Telegram bot tokenı | Yerel `.env` dosyasından okunur, loglanmaz |
 | Randevu bilgileri | Konsolda; Telegram açıksa Telegram'da gösterilir |
 | Tarayıcı profili | Geçici oluşturulur, girişten sonra silinir |
-| MHRS işlemleri | Poliklinik kataloğu ve uygunluk sorgusuyla sınırlıdır |
+| MHRS işlemleri | Poliklinik, hastane ve hekim katalogları ile uygunluk sorgusuyla sınırlıdır |
 
 > [!TIP]
 > Public issue veya hata raporu paylaşırken T.C. kimlik numarası, telefon, JWT,
@@ -387,7 +406,7 @@ Kişisel randevu ekran görüntüleri
 
 ### Kapsam içinde
 
-- Poliklinik kataloğunu okuma
+- Poliklinik, hastane ve hekim kataloglarını okuma
 - Uygun randevu sorgulama
 - Tarih penceresine göre sonuç filtreleme
 - Konsol ve Telegram bildirimi
@@ -454,7 +473,11 @@ flowchart TD
     I --> J[⚙️ İl, tarih penceresi ve takip modunu belirle]
 
     J --> K[🏥 Poliklinik kataloğunu oku]
-    K --> L[🔎 Uygun randevuları sorgula]
+    K --> KA{Belirli hekim seçilecek mi?}
+    KA -- Hayır --> L[🔎 Uygun randevuları sorgula]
+    KA -- Evet --> KB[🏨 Hastane kataloğunu oku ve hastane seç]
+    KB --> KC[👨‍⚕️ Hekim kataloğunu oku ve hekim seç]
+    KC --> L
     L --> M{Sonuç seçilen pencere içinde mi?}
 
     M -- Evet --> N[🔔 Terminalde ayrıntıları göster]
@@ -479,9 +502,9 @@ flowchart TD
     classDef blocked fill:#7f1d1d,color:#ffffff,stroke:#f87171,stroke-width:3px;
 
     class A,Q start;
-    class C,D,F,G,H,I,J,K,L,N,P,T process;
+    class C,D,F,G,H,I,J,K,KB,KC,L,N,P,T process;
     class O notify;
-    class B,E,M,R,U decision;
+    class B,E,KA,M,R,U decision;
 ```
 
 > [!NOTE]

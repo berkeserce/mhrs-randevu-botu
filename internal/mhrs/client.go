@@ -54,6 +54,18 @@ type ClinicOption struct {
 	Name string
 }
 
+type InstitutionOption struct {
+	ID                  int64
+	Name                string
+	MainInstitutionID   int64
+	BranchInstitutionID int64
+}
+
+type DoctorOption struct {
+	ID   int64
+	Name string
+}
+
 type Availability struct {
 	DoctorName      string
 	InstitutionName string
@@ -151,9 +163,42 @@ func (c *Client) ListClinics(ctx context.Context, criteria SearchCriteria) ([]Cl
 	return clinics, nil
 }
 
+func (c *Client) ListInstitutions(ctx context.Context, criteria SearchCriteria) ([]InstitutionOption, error) {
+	path := fmt.Sprintf(
+		"kurum/kurum/kurum-klinik/il/%d/ilce/%d/kurum/-1/klinik/%d/ana-kurum/select-input",
+		criteria.CityID, criteria.DistrictID, criteria.ClinicID,
+	)
+	var tree []selectOption
+	if err := c.get(ctx, path, &tree); err != nil {
+		return nil, err
+	}
+
+	institutions := make([]InstitutionOption, 0, len(tree))
+	seen := make(map[int64]bool)
+	flattenInstitutionOptions(tree, &institutions, seen)
+	return institutions, nil
+}
+
+func (c *Client) ListDoctors(ctx context.Context, criteria SearchCriteria, institution InstitutionOption) ([]DoctorOption, error) {
+	path := fmt.Sprintf(
+		"kurum/hekim/hekim-klinik/hekim-select-input/anakurum/%d/kurum/%d/klinik/%d",
+		institution.MainInstitutionID, institution.BranchInstitutionID, criteria.ClinicID,
+	)
+	var tree []selectOption
+	if err := c.get(ctx, path, &tree); err != nil {
+		return nil, err
+	}
+
+	doctors := make([]DoctorOption, 0, len(tree))
+	seen := make(map[int64]bool)
+	flattenDoctorOptions(tree, &doctors, seen)
+	return doctors, nil
+}
+
 type selectOption struct {
 	Text     string          `json:"text"`
 	Value    json.RawMessage `json:"value"`
+	Value3   json.RawMessage `json:"value3"`
 	Children []selectOption  `json:"children"`
 }
 
@@ -166,6 +211,36 @@ func flattenClinicOptions(options []selectOption, result *[]ClinicOption, seen m
 			seen[id] = true
 		}
 		flattenClinicOptions(option.Children, result, seen)
+	}
+}
+
+func flattenInstitutionOptions(options []selectOption, result *[]InstitutionOption, seen map[int64]bool) {
+	for _, option := range options {
+		id, idOK := selectOptionID(option.Value)
+		mainID, mainIDOK := selectOptionID(option.Value3)
+		name := strings.TrimSpace(option.Text)
+		if idOK && id > 0 && name != "" && !seen[id] {
+			institution := InstitutionOption{ID: id, Name: name, MainInstitutionID: id, BranchInstitutionID: -1}
+			if mainIDOK && mainID > 0 {
+				institution.MainInstitutionID = mainID
+				institution.BranchInstitutionID = id
+			}
+			*result = append(*result, institution)
+			seen[id] = true
+		}
+		flattenInstitutionOptions(option.Children, result, seen)
+	}
+}
+
+func flattenDoctorOptions(options []selectOption, result *[]DoctorOption, seen map[int64]bool) {
+	for _, option := range options {
+		id, ok := selectOptionID(option.Value)
+		name := strings.TrimSpace(option.Text)
+		if ok && id > 0 && name != "" && !seen[id] {
+			*result = append(*result, DoctorOption{ID: id, Name: name})
+			seen[id] = true
+		}
+		flattenDoctorOptions(option.Children, result, seen)
 	}
 }
 

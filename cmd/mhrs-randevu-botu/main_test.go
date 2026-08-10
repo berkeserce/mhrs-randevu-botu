@@ -173,3 +173,24 @@ func TestFilterClinicsHandlesTurkishI(t *testing.T) {
 		t.Fatalf("matches = %#v", matches)
 	}
 }
+
+func TestFilterInstitutionsAndDoctors(t *testing.T) {
+	institutions := []mhrs.InstitutionOption{
+		{ID: 1, Name: "Atatürk Devlet Hastanesi"},
+		{ID: 2, Name: "Şehir Hastanesi"},
+	}
+	if got := filterInstitutions(institutions, "devlet"); len(got) != 1 || got[0].ID != 1 {
+		t.Fatalf("institutions = %#v", got)
+	}
+
+	doctors := []mhrs.DoctorOption{
+		{ID: 10, Name: "Ayşe IŞIK"},
+		{ID: 11, Name: "Mehmet Yılmaz"},
+	}
+	if got := filterDoctors(doctors, "ışık"); len(got) != 1 || got[0].ID != 10 {
+		t.Fatalf("doctors = %#v", got)
+	}
+	if got := filterDoctors(doctors, "yilmaz"); len(got) != 1 || got[0].ID != 11 {
+		t.Fatalf("doctors = %#v", got)
+	}
+}
