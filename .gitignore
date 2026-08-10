@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+/mhrs-randevu-botu.exe
+/mhrs-randevu-botu
+.cache/
+coverage.out
+.idea/
+.vscode/
